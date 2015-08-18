@@ -35,7 +35,7 @@ def calc_probability(text, total_spam, total_ham):
 	except KeyError:
 		pass
 	
-	# iterate through dictionary of words and number of inclusions 
+	# iterate through dictionary of words and number of inclusions
 	for word, number in words_in_email.iteritems():
 
 		# return number of spam emails with word
@@ -48,16 +48,18 @@ def calc_probability(text, total_spam, total_ham):
 		prob_s = (number * wj_s) + w0_s
 		total_prob_spam += prob_s    # add to sum
 
-		#calculate probability that word vector found in any email
+		# return number of total emails with word
 		no_ham_with_word = int(os.popen("grep -il " + word + " enron1/ham/*.txt | wc -l").read())
 		total_with_word = no_ham_with_word + no_spam_with_word
 
+		#calculate probability that word vector found in any email
 		prob_in_total = float(total_with_word)/total     #prob that word in any email
 		wj_t = math.log(prob_in_total/(1-prob_in_total))
 		w0_t = math.log(1-prob_in_total)
 		prob_t = (number * wj_t) + w0_t
 		total_prob_total += prob_t    # add to sum
 		
+	# use naive bayers to calculate probability that word vector is spam
 	prob_email_spam = math.exp(total_prob_spam + math.log(prob_spam) - total_prob_total)
 	return prob_email_spam
 
