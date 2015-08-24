@@ -1,77 +1,87 @@
-import pandas as pd 
+# create a spam filter to check if new email is likely to be spam or not 
+
+import os
 import re
 import collections
-import math
-import os
+import math 
+import json
+from collections import Counter
 
-# read email
-email = open('/Users/jordanfreedman/Thinkful/Projects/Spam Filter/enron1/spam/0006.2003-12-18.GP.spam.txt', 'r').read()
+ham = '/Users/jordanfreedman/Thinkful/Projects/Spam_Filter/enron1/ham/'
+spam = '/Users/jordanfreedman/Thinkful/Projects/Spam_Filter/enron1/spam/'
+spam_email = spam + '0006.2003-12-18.GP.spam.txt'
+ham_email = ham + '0002.1999-12-13.farmer.ham.txt'
+spam_database = 'spam_words_db.json'
+ham_database = 'ham_words_db.json'
 
-# find individual words in email
+
 def find_words(text):
 	regex = r"[a-zA-Z0-9']+"
 	all_words = re.findall(regex, text)
 	return set(all_words)
 
-# create dictionary with words as keys and number in email as value
-def number_words(text):
-	count = collections.defaultdict(int)
-	words = list(find_words(text))
-	for word in words:
-		count[word] = text.count(word)
-	return count
+def find_words_in_email(path):
+	email = open(path, 'r')
+	email_string = email.read()
+	list_words_email = find_words(email_string)
+	email.close()
+	return set(list_words_email)
 
-# calculate probability that spam email would contain word vector
-def calc_probability(text, total_spam, total_ham):
+def create_vector(email_words, folder_words):
+	vector = collections.defaultdict(int)
+	for word in folder_words:
+		if word in list(email_words):
+			vector[word] = 1
+		else:
+			vector[word] = 0
+	return vector
 
-	total = total_ham + total_spam
-	prob_spam = float(total_spam)/total
-	words_in_email = number_words(text)
-	total_prob_spam = 0
-	total_prob_total = 0
-
-	# remove 'Subject' which is present in all emails
-	try: del words_in_email['Subject']
-	except KeyError:
-		pass
+# return probability of word being found in file based on how often it was found previously
+def calc_prob_word(word, database):
+	total = database['total_files']
+	lg_prob = 0
+	try: num_with_word = database['words'][word] # check if word found before
+	except KeyError: num_with_word = 0 # if not, select 0
+	prob = (float(num_with_word + 1)) / (total + 2) # calculate probability, with laplace smoothing to ensure no bugs
+	return prob
 	
-	# iterate through dictionary of words and number of inclusions
-	for word, number in words_in_email.iteritems():
+# open dictionaries for each folder
+with open(spam_database) as f:
+	    num_words_in_spam = json.load(f)
 
-		# return number of spam emails with word
-		no_spam_with_word = int(os.popen("grep -il " + word + " enron1/spam/*.txt | wc -l").read())
+with open(ham_database) as f:
+	    num_words_in_ham = json.load(f)
 
-		# calculate probability that word vector found in spam 
-		prob_in_spam = float(no_spam_with_word)/total_spam    #prob that word in spam
-		wj_s = math.log(prob_in_spam/(1-prob_in_spam))
-		w0_s = math.log(1-prob_in_spam)
-		prob_s = (number * wj_s) + w0_s
-		total_prob_spam += prob_s    # add to sum
+# add dictionaries to find all words and number of files present for all files
+both_database = Counter(num_words_in_spam['words']) + Counter(num_words_in_ham['words'])
+total = num_words_in_spam['total_files'] + num_words_in_ham['total_files']
+num_words_in_all = {'total_files': total, 'words': both_database}
 
-		# return number of total emails with word
-		no_ham_with_word = int(os.popen("grep -il " + word + " enron1/ham/*.txt | wc -l").read())
-		total_with_word = no_ham_with_word + no_spam_with_word
+# loop over all files in folder
+for file_name in os.listdir(ham):
+	email = ham + file_name
+	words_in_email = find_words_in_email(email) # find all words present in email 
 
-		#calculate probability that word vector found in any email
-		prob_in_total = float(total_with_word)/total     #prob that word in any email
-		wj_t = math.log(prob_in_total/(1-prob_in_total))
-		w0_t = math.log(1-prob_in_total)
-		prob_t = (number * wj_t) + w0_t
-		total_prob_total += prob_t    # add to sum
-		
-	# use naive bayers to calculate probability that word vector is spam
-	prob_email_spam = math.exp(total_prob_spam + math.log(prob_spam) - total_prob_total)
-	return prob_email_spam
+	try: words_in_email.remove('Subject') # remove 'Subject' as present in all
+	except KeyError: pass
 
-print calc_probability(email, 1500, 3672)
+	try: words_in_email.remove("'") # remove "'" as not actual word
+	except KeyError: pass
 
+	prob_spam = float(num_words_in_spam['total_files']) / num_words_in_all['total_files'] # calculate prior probability 
+	lg_spam = 0
+	lg_all = 0
+	number = 0 
+	# loop through words in email
+	for word in words_in_email: 
+		lg_spam += math.log(calc_prob_word(word, num_words_in_spam)) # calculate probability word present in spam email and log transform
+		lg_all += math.log(calc_prob_word(word, num_words_in_all)) # calculate probability word present in any email and log transform
+		number += 1
+	try: prob = math.exp((lg_spam - lg_all) / number) # calculate approximate probability by normalizing and finding exp
+	except ZeroDivisionError: prob = 1.0 # if no words present in email, set probability as 1 (spam)
+	prob *= prob_spam # multiply by prior
 
-
-
-
-
-
-
-
-
-
+	if prob > prob_spam:
+		print 'spam'
+	else: print 'not spam'
+	
